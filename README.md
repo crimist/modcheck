@@ -2,4 +2,4 @@
 
 Demo for checking if stack is inside main module - detects calls from DLL injection
 
-Easily defeated by hooking `RtlCaptureStackBackTrace` or any of the other module info funcs
+Also contains demo dll for bypass by spoofing stack and using ret gadget inside main module
