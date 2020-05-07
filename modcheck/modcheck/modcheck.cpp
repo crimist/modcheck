@@ -11,10 +11,13 @@
 #include <Psapi.h>
 #include <DbgHelp.h>
 #pragma comment(lib, "DbgHelp.lib")
+#include <intrin.h>
+
+// whether to check multiple levels of stack - unnecessary for demo
+#undef MODCHECK_MULTILEVEL
 
 // possible improvements:
 //	walk mem maps and check if parent has execute (could be hooked)
-//	actually get fp through asm to bypass hooking (could be spoofed but would require serious asm work in dll)
 
 HMODULE getMainModule() {
 	auto proc = GetCurrentProcess();
@@ -48,6 +51,8 @@ HMODULE getMainModule() {
 	return NULL;
 }
 
+// gets the main module by assuming that the first module will always be the main one
+// not sure if guaranteed to work on all versions of win
 HMODULE getMainModuleFast() {
 	auto proc = GetCurrentProcess();
 	HMODULE mainMod = NULL;
@@ -60,7 +65,7 @@ HMODULE getMainModuleFast() {
 }
 
 void checkCaller() {
-	// would make static for real use
+	// would make static for real use so that injection would have to be on startup
 	auto mainMod = getMainModuleFast();
 	assert(mainMod != NULL);
 
@@ -68,12 +73,14 @@ void checkCaller() {
 	MODULEINFO modInfo;
 	auto statusB = GetModuleInformation(proc, mainMod, &modInfo, sizeof(modInfo));
 	assert(statusB);
+	CloseHandle(proc);
 
 	uintptr_t lower = (uintptr_t)modInfo.lpBaseOfDll, upper = (uintptr_t)modInfo.lpBaseOfDll + modInfo.SizeOfImage;
 	std::cout << "lower\t" << lower << "\n";
 	std::cout << "upper\t" << upper << "\n";
 
-	/*
+	/* 
+	// todo?
 	IMAGE_NT_HEADERS *peHdr = ImageNtHeader(modInfo.lpBaseOfDll);
 	CONTEXT ctx = {0};
 	ctx.ContextFlags = CONTEXT_FULL;
@@ -99,25 +106,36 @@ void checkCaller() {
 		}
 	}
 	CloseHandle(thread);
-	
+	CloseHandle(proc);
+
 	for (auto const& addr : callers) {
 		std::cout << "addr\t" << std::setw(16) << addr << "\n";
 		assert(addr < upper && addr > lower);
 	}
 	*/
 
+	// get single ret addr using asm
+	auto addr = (uintptr_t*)_AddressOfReturnAddress(); // _ReturnAddress() for direct val
+	std::cout << "asm\t" << *addr << "\n";
+	assert(*addr <= upper && *addr >= lower);
+
+	#ifdef MODCHECK_MULTILEVEL
+	// use RtlCaptureStackBackTrace to get full backtrace - could easily be hooked
 	const auto s = 6; // if > 6 we'll catch `Kernel32!BaseThreadInitThunk` from startup
 	void* callers[s];
 	auto captured = RtlCaptureStackBackTrace(0, s, callers, NULL);
-
+	assert(captured);
 	std::cout << "captured: " << captured << "\n";
+
+	assert(*addr == (uintptr_t)callers[0]); // we can detect spoof for first level
 	for (auto i = 0; i < captured; i++) {
 		auto caller = (uintptr_t)callers[i];
 		std::cout << "> " << caller << "\n";
-		assert(caller < upper && caller > lower);
-	}
 
-	CloseHandle(proc);
+		assert(caller <= upper && caller >= lower);
+	}
+	#endif
+
 	return;
 }
 
@@ -127,9 +145,7 @@ int main() {
 
 	checkCaller();
 
-	std::condition_variable cv;
-	std::mutex m;
-	std::unique_lock<std::mutex> lock(m);
+	std::condition_variable cv; std::mutex m; std::unique_lock<std::mutex> lock(m);
 	cv.wait(lock, [] {return false; });
 
 	return 0;
