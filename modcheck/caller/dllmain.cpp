@@ -5,9 +5,12 @@ typedef void function_t();
 extern "C" void SpoofCall(uintptr_t func, uintptr_t gadget, uintptr_t realret);
 
 // don't inline so that we can get our real ret addr
-__declspec(noinline) void SpoofCallWrapper(uintptr_t func, uintptr_t gadget) {
-	SpoofCall(func, gadget, (uintptr_t)_ReturnAddress());
-	return;
+__declspec(noinline) void spoofCallWrapperLower(uintptr_t func, uintptr_t gadget) {
+	SpoofCall(func, gadget, (uintptr_t)_ReturnAddress()); // this will return...
+}
+__declspec(noinline) void spoofCallWrapper(uintptr_t func, uintptr_t gadget) {
+	spoofCallWrapperLower(func, gadget);
+	return; // ...to this instruction
 }
 
 HMODULE getMainModuleFast() {
@@ -65,17 +68,16 @@ void main() {
 	std::cout << "faddr> ";
 	std::cin >> std::hex >> addr;
 	if (addr == 0) {
-		std::cout << "no addr, exiting\n";
+		std::cout << "no addr\n";
 		goto cleanup;
 	}
 
 	std::cout << "calling " << addr << "\n";
-	SpoofCallWrapper(addr, gadget);
-	// stack is now fucked - don't try access any local vars
-	// modSelf works cause it's global but if we hit this functions return we would crash
-	// todo: try to fix stack by subtracting rsp?
+	spoofCallWrapper(addr, gadget);
+	std::cout << "called " << addr << "\n";
 
 	cleanup:
+	std::cout << "removing dll\n";
 	FreeLibraryAndExitThread(modSelf, 0);
 	return;
 }
