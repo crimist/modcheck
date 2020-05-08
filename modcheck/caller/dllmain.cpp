@@ -5,12 +5,16 @@ typedef void function_t();
 extern "C" void SpoofCall(uintptr_t func, uintptr_t gadget, uintptr_t realret);
 
 // don't inline so that we can get our real ret addr
-__declspec(noinline) void spoofCallWrapperLower(uintptr_t func, uintptr_t gadget) {
-	SpoofCall(func, gadget, (uintptr_t)_ReturnAddress()); // this will return...
-}
 __declspec(noinline) void spoofCallWrapper(uintptr_t func, uintptr_t gadget) {
-	spoofCallWrapperLower(func, gadget);
-	return; // ...to this instruction
+	struct _ {
+		static void f(uintptr_t func, uintptr_t gadget) {
+			SpoofCall(func, gadget, (uintptr_t)_ReturnAddress());  // this will return...
+		}
+	};
+
+	_::f(func, gadget);
+
+	return; // ...straight to this instruction
 }
 
 HMODULE getMainModuleFast() {
